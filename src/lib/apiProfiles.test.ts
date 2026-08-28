@@ -5,6 +5,7 @@ import {
   DEFAULT_IMAGES_MODEL,
   DEFAULT_OPENAI_PROFILE_ID,
   DEFAULT_SETTINGS,
+  createDefaultGeminiProfile,
   createDefaultOpenAIProfile,
   createDefaultFalProfile,
   getApiProviderLabel,
@@ -1570,7 +1571,7 @@ describe('custom providers', () => {
       ],
     })
 
-    expect(settings.providerOrder).toEqual(['fal', 'openai', 'sb2api-async', 'custom-alpha', 'custom-beta'])
+    expect(settings.providerOrder).toEqual(['openai', 'gemini', 'custom-alpha', 'custom-beta'])
   })
 
   it('keeps active custom providers in Images API mode when legacy apiMode is responses', () => {
@@ -1602,6 +1603,30 @@ describe('custom providers', () => {
 
     expect(falProfile).toMatchObject({ provider: 'fal', apiMode: 'images', streamImages: false, transparentBackgroundMethod: 'local' })
     expect(customProfile).toMatchObject({ provider: provider.id, apiMode: 'images', streamImages: false })
+  })
+
+  it('adds Gemini native image defaults and restores its provider draft', () => {
+    const geminiProfile = createDefaultGeminiProfile({ id: 'gemini-test', apiKey: 'test-key' })
+    const openaiProfile = switchApiProfileProvider({ ...geminiProfile, baseUrl: 'https://gemini.example.com', model: 'gemini-custom' }, 'openai')
+    const restored = switchApiProfileProvider(openaiProfile, 'gemini')
+
+    expect(geminiProfile).toMatchObject({
+      provider: 'gemini',
+      baseUrl: '',
+      model: 'gemini-3.1-flash-image-preview',
+      apiMode: 'images',
+      apiProxy: false,
+      transparentBackgroundMethod: 'local',
+    })
+    expect(restored).toMatchObject({
+      provider: 'gemini',
+      baseUrl: 'https://gemini.example.com',
+      model: 'gemini-custom',
+      apiMode: 'images',
+      apiProxy: false,
+      transparentBackgroundMethod: 'local',
+    })
+    expect(getApiProviderLabel(normalizeSettings({ profiles: [geminiProfile] }), 'gemini')).toBe('Gemini 原生图片')
   })
 
   it('keeps an explicitly empty fal.ai URL', () => {

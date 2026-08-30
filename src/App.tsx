@@ -9,7 +9,6 @@ import type { AppSettings } from './types'
 import Header from './components/Header'
 import SearchBar from './components/SearchBar'
 import TaskGrid from './components/TaskGrid'
-import AgentWorkspace from './components/AgentWorkspace'
 import InputBar from './components/InputBar'
 import DetailModal from './components/DetailModal'
 import Lightbox from './components/Lightbox'
@@ -25,9 +24,9 @@ import { useGlobalClickSuppression } from './lib/clickSuppression'
 let defaultConfigImportStarted = false
 
 export default function App() {
-  const appMode = useStore((s) => s.appMode)
   const filterFavorite = useStore((s) => s.filterFavorite)
   const activeFavoriteCollectionId = useStore((s) => s.activeFavoriteCollectionId)
+  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   useDockerApiUrlMigrationNotice()
   useGlobalClickSuppression()
 
@@ -55,9 +54,7 @@ export default function App() {
 
     const clearAppliedUrlSettings = () => {
       if (!hasUrlSettingParams(searchParams)) return
-
       clearUrlSettingParams(searchParams)
-
       const nextSearch = searchParams.toString()
       const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`
       window.history.replaceState(null, '', nextUrl)
@@ -68,10 +65,7 @@ export default function App() {
         const importedSettings = embeddedDefaultConfig || customProviderConfigUrl
           ? await loadDefaultConfig()
           : hasDefaultPresetConfig()
-            ? {
-                customProviders: [],
-                profiles: [{ ...createDefaultOpenAIProfile(), isDefault: true }],
-              }
+            ? { customProviders: [], profiles: [{ ...createDefaultOpenAIProfile(), isDefault: true }] }
             : null
         setPresetConfig(importedSettings)
 
@@ -86,9 +80,7 @@ export default function App() {
         if (!importedSettings) {
           useStore.setState({ dismissedPresetProfileIds: [], dismissedPresetProviderIds: [] })
           if (syncedState.settings.profiles.some((profile) => profile.isDefault)) {
-            syncedState.setSettings({
-              profiles: syncedState.settings.profiles.map((profile) => profile.isDefault ? { ...profile, isDefault: undefined } : profile),
-            })
+            syncedState.setSettings({ profiles: syncedState.settings.profiles.map((profile) => profile.isDefault ? { ...profile, isDefault: undefined } : profile) })
           }
         }
 
@@ -98,15 +90,11 @@ export default function App() {
         const settings = isPresetConfigOnlyEnabled()
           ? normalizeSettings({
               ...current.settings,
-              activeProfileId: presetIds.has(current.settings.activeProfileId)
-                ? current.settings.activeProfileId
-                : defaultPresetId ?? [...presetIds][0],
+              activeProfileId: presetIds.has(current.settings.activeProfileId) ? current.settings.activeProfileId : defaultPresetId ?? [...presetIds][0],
               agentTextProfileId: current.settings.agentTextProfileId && presetIds.has(current.settings.agentTextProfileId)
                 ? current.settings.agentTextProfileId
                 : current.settings.profiles.find((profile) => presetIds.has(profile.id) && isAgentTextApiProfile(profile))?.id ?? null,
-              agentImageProfileId: current.settings.agentImageProfileId && presetIds.has(current.settings.agentImageProfileId)
-                ? current.settings.agentImageProfileId
-                : defaultPresetId ?? [...presetIds][0],
+              agentImageProfileId: current.settings.agentImageProfileId && presetIds.has(current.settings.agentImageProfileId) ? current.settings.agentImageProfileId : defaultPresetId ?? [...presetIds][0],
             })
           : current.settings
         current.setSettings(await applyUrlSettings(settings))
@@ -125,28 +113,32 @@ export default function App() {
 
   useEffect(() => {
     const preventPageImageDrag = (e: DragEvent) => {
-      if ((e.target as HTMLElement | null)?.closest('img')) {
-        e.preventDefault()
-      }
+      if ((e.target as HTMLElement | null)?.closest('img')) e.preventDefault()
     }
-
     document.addEventListener('dragstart', preventPageImageDrag)
     return () => document.removeEventListener('dragstart', preventPageImageDrag)
   }, [])
 
+  useEffect(() => {
+    setConfirmDialog({
+      title: '开始前请先配置',
+      message: '请于左上角设置配置好模型和apikey。',
+      showCancel: false,
+      confirmText: '我知道了',
+      icon: 'info',
+      action: () => {},
+    })
+  }, [setConfirmDialog])
+
   return (
     <>
       <Header />
-      {appMode === 'agent' ? (
-        <AgentWorkspace />
-      ) : (
-        <main data-home-main data-drag-select-surface className="pb-48">
-          <div className="safe-area-x max-w-7xl mx-auto">
-            <SearchBar />
-            {filterFavorite && !activeFavoriteCollectionId ? <FavoriteCollectionsView /> : <TaskGrid />}
-          </div>
-        </main>
-      )}
+      <main data-home-main data-drag-select-surface className="pb-48">
+        <div className="safe-area-x max-w-7xl mx-auto">
+          <SearchBar />
+          {filterFavorite && !activeFavoriteCollectionId ? <FavoriteCollectionsView /> : <TaskGrid />}
+        </div>
+      </main>
       <InputBar />
       <DetailModal />
       <Lightbox />

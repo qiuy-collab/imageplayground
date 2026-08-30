@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ImagePlayground logo</title>
+  <desc id="desc">深蓝圆角方块内的图像画布、山景和创作闪光标志</desc>
+  <defs>
+    <linearGradient id="bg" x1="54" y1="38" x2="463" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172554"/>
+      <stop offset="0.48" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="147" y1="141" x2="382" y2="375" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#BFDBFE"/>
+      <stop offset="0.52" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+    <linearGradient id="mountain" x1="178" y1="281" x2="348" y2="379" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#312E81"/>
+      <stop offset="1" stop-color="#172554"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="13" stdDeviation="12" flood-color="#0F172A" flood-opacity=".28"/>
+    </filter>
+  </defs>
+
+  <rect x="28" y="28" width="456" height="456" rx="116" fill="url(#bg)"/>
+  <path d="M102 362c24 58 81 98 147 98h-101c-66 0-120-54-120-120V172c0-66 54-120 120-120h18c-54 22-92 75-92 137v151c0 8 1 15 2 22h26Z" fill="#0F172A" opacity=".22"/>
+
+  <g filter="url(#shadow)">
+    <rect x="108" y="142" width="272" height="228" rx="35" fill="#F8FAFC"/>
+    <rect x="125" y="159" width="238" height="194" rx="23" fill="url(#sky)"/>
+    <circle cx="310" cy="205" r="22" fill="#FEF3C7"/>
+    <path d="m125 329 67-75a17 17 0 0 1 26 0l40 45 29-31a18 18 0 0 1 27 1l49 60v1c0 13-10 23-23 23H148c-13 0-23-10-23-23v-1Z" fill="url(#mountain)"/>
+    <path d="m125 338 88-72 45 46 27-30 78 56v-8c0 13-10 23-23 23H148c-13 0-23-10-23-23v8Z" fill="#1E1B4B" opacity=".48"/>
+    <path d="m108 311 55-46" stroke="#fff" stroke-width="12" stroke-linecap="round" opacity=".78"/>
+    <path d="m108 337 81-68" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".58"/>
+  </g>
+
+  <g fill="#fff">
+    <path d="M394 90c3 0 5 2 5 5 0 23 11 34 34 34 3 0 5 2 5 5s-2 5-5 5c-23 0-34 11-34 34 0 3-2 5-5 5s-5-2-5-5c0-23-11-34-34-34-3 0-5-2-5-5s2-5 5-5c23 0 34-11 34-34 0-3 2-5 5-5Z"/>
+    <path d="M128 108c2 0 3 1 3 3 0 13 6 19 19 19 2 0 3 1 3 3s-1 3-3 3c-13 0-19 6-19 19 0 2-1 3-3 3s-3-1-3-3c0-13-6-19-19-19-2 0-3-1-3-3s1-3 3-3c13 0 19-6 19-19 0-2 1-3 3-3Z" opacity=".8"/>
+  </g>
+  <circle cx="406" cy="229" r="7" fill="#C4B5FD"/>
+  <circle cx="92" cy="226" r="6" fill="#93C5FD"/>
+</svg>

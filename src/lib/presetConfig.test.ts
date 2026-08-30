@@ -278,4 +278,219 @@ describe('preset config policy', () => {
     })
     expect(policy.getDefaultPresetBaseUrl()).toBe('')
   })
+
+  it('does not unlock any preset field by default', async () => {
+    const { createDefaultOpenAIProfile } = await import('./apiProfiles')
+    const policy = await import('./presetConfig')
+    policy.setPresetConfig({ customProviders: [], profiles: [createDefaultOpenAIProfile({ id: 'preset-a' })] })
+
+    expect(policy.isPresetProfileFieldUnlocked('model')).toBe(false)
+    expect(policy.isPresetProfileFieldUnlocked('baseUrl')).toBe(false)
+  })
+
+  it('keeps locked baseUrl but preserves the user-edited model when model is unlocked', async () => {
+    vi.stubEnv('VITE_LOCK_PRESET_CONFIG_PARAMS', 'true')
+    vi.stubEnv('VITE_PRESET_UNLOCKED_FIELDS', 'model')
+    const { createDefaultOpenAIProfile, normalizeSettings } = await import('./apiProfiles')
+    const policy = await import('./presetConfig')
+    const preset = createDefaultOpenAIProfile({
+      id: 'preset-a',
+      isDefault: true,
+      baseUrl: 'https://preset.example.com/v1',
+      model: 'preset-model',
+    })
+    policy.setPresetConfig({ customProviders: [], profiles: [preset] })
+
+    expect(policy.isPresetProfileFieldUnlocked('model')).toBe(true)
+    expect(policy.isPresetProfileFieldUnlocked('baseUrl')).toBe(false)
+
+    const user = createDefaultOpenAIProfile({
+      id: 'preset-a',
+      baseUrl: 'https://user-edited.example.com/v1',
+      model: 'user-model',
+      apiKey: 'user-key',
+    })
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [user] }))
+
+    expect(enforced.profiles).toHaveLength(1)
+    expect(enforced.profiles[0].baseUrl).toBe('https://preset.example.com/v1')
+    expect(enforced.profiles[0].model).toBe('user-model')
+    expect(enforced.profiles[0].apiKey).toBe('user-key')
+    expect(enforced.profiles[0].provider).toBe('openai')
+  })
+
+  it('never unlocks protected preset fields even when listed', async () => {
+    vi.stubEnv('VITE_LOCK_PRESET_CONFIG_PARAMS', 'true')
+    vi.stubEnv('VITE_PRESET_UNLOCKED_FIELDS', 'model,provider,apiKey,id,isDefault')
+    const { createDefaultOpenAIProfile, normalizeSettings } = await import('./apiProfiles')
+    const policy = await import('./presetConfig')
+    const preset = createDefaultOpenAIProfile({ id: 'preset-a', isDefault: true, baseUrl: 'https://preset.example.com/v1', model: 'preset-model' })
+    policy.setPresetConfig({ customProviders: [], profiles: [preset] })
+
+    const user = createDefaultOpenAIProfile({
+      id: 'preset-a',
+      provider: 'gemini',
+      model: 'user-model',
+      apiKey: 'user-key',
+      baseUrl: 'https://user-edited.example.com/v1',
+    })
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [user] }))
+
+    expect(enforced.profiles[0].provider).toBe('openai')
+    expect(enforced.profiles[0].apiKey).toBe('user-key')
+    expect(enforced.profiles[0].model).toBe('user-model')
+  })
+})
+
+describe('preset provider switch mode (single profile + providerPresets)', () => {
+  const PRESET_PROVIDER_PRESETS = {
+    openai: { baseUrl: 'https://gateway.example.com/v1', model: 'gpt-image2' },
+    gemini: { baseUrl: 'https://gateway.example.com', model: 'gemini-3.1-flash-image-preview' },
+  }
+
+  async function setup() {
+    vi.stubEnv('VITE_LOCK_PRESET_CONFIG_PARAMS', 'true')
+    vi.stubEnv('VITE_PRESET_UNLOCKED_FIELDS', 'model')
+    const { createDefaultOpenAIProfile, normalizeSettings, switchApiProfileProvider } = await import('./apiProfiles')
+    const policy = await import('./presetConfig')
+    const preset = createDefaultOpenAIProfile({
+      id: 'default-openai',
+      isDefault: true,
+      name: '官网图片',
+      baseUrl: 'https://gateway.example.com/v1',
+      model: 'gpt-image2',
+    })
+    policy.setPresetConfig({ customProviders: [], profiles: [preset], providerPresets: PRESET_PROVIDER_PRESETS })
+    return { policy, normalizeSettings, preset, switchApiProfileProvider }
+  }
+
+  it('lets the user switch between the declared provider types while pinning each baseUrl', async () => {
+    const { policy, normalizeSettings, preset } = await setup()
+    expect(policy.isPresetProviderSwitchable()).toBe(true)
+    expect(policy.isPresetSwitchableProvider('openai')).toBe(true)
+    expect(policy.isPresetSwitchableProvider('gemini')).toBe(true)
+    expect(policy.isPresetSwitchableProvider('fal')).toBe(false)
+
+    const switchedToGemini = { ...preset, provider: 'gemini' as const, model: 'gemini-3.1-flash-image-preview' }
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [switchedToGemini] }))
+
+    expect(enforced.profiles[0].provider).toBe('gemini')
+    expect(enforced.profiles[0].baseUrl).toBe('https://gateway.example.com')
+    expect(enforced.profiles[0].model).toBe('gemini-3.1-flash-image-preview')
+  })
+
+  it('keeps the user-edited model per provider type', async () => {
+    const { policy, normalizeSettings, preset } = await setup()
+    const openaiEdited = { ...preset, provider: 'openai' as const, model: 'my-custom-gpt-model' }
+    const enforcedOpenAI = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [openaiEdited] }))
+    expect(enforcedOpenAI.profiles[0].model).toBe('my-custom-gpt-model')
+
+    const geminiEdited = { ...preset, provider: 'gemini' as const, model: 'my-custom-gemini-model' }
+    const enforcedGemini = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [geminiEdited] }))
+    expect(enforcedGemini.profiles[0].provider).toBe('gemini')
+    expect(enforcedGemini.profiles[0].model).toBe('my-custom-gemini-model')
+    expect(enforcedGemini.profiles[0].baseUrl).toBe('https://gateway.example.com')
+  })
+
+  it('falls back to the preset provider for types outside the switch list', async () => {
+    const { policy, normalizeSettings, preset } = await setup()
+    const falProfile = { ...preset, provider: 'fal' as const, baseUrl: 'https://fal.run' }
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [falProfile] }))
+
+    expect(enforced.profiles[0].provider).toBe('openai')
+    expect(enforced.profiles[0].baseUrl).toBe('https://gateway.example.com/v1')
+  })
+
+  it('collapses legacy profiles into the single preset and carries over an API key', async () => {
+    const { policy, normalizeSettings, preset } = await setup()
+    const legacyGemini = { ...preset, id: 'preset-gemini', provider: 'gemini' as const, apiKey: 'legacy-key', baseUrl: 'https://gateway.example.com' }
+    const legacyCustom = { ...preset, id: 'legacy-openai', apiKey: 'another-key' }
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({
+      customProviders: [],
+      profiles: [legacyGemini, legacyCustom],
+      activeProfileId: legacyCustom.id,
+    }))
+
+    expect(enforced.profiles).toHaveLength(1)
+    expect(enforced.profiles[0].id).toBe('default-openai')
+    expect(enforced.profiles[0].apiKey).toBe('legacy-key')
+    expect(enforced.activeProfileId).toBe('default-openai')
+  })
+
+  it('restores the preset profile even after the user deleted it', async () => {
+    const { policy, normalizeSettings, preset } = await setup()
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({
+      customProviders: [],
+      profiles: [{ ...preset, id: 'legacy-openai', apiKey: 'legacy-key' }],
+      activeProfileId: 'legacy-openai',
+    }))
+
+    expect(enforced.profiles.map((profile) => profile.id)).toEqual(['default-openai'])
+    expect(enforced.profiles[0].apiKey).toBe('legacy-key')
+    expect(enforced.activeProfileId).toBe('default-openai')
+  })
+
+  it('stays locked to the preset provider when providerPresets is absent', async () => {
+    vi.stubEnv('VITE_LOCK_PRESET_CONFIG_PARAMS', 'true')
+    vi.stubEnv('VITE_PRESET_UNLOCKED_FIELDS', 'model')
+    const { createDefaultOpenAIProfile, normalizeSettings } = await import('./apiProfiles')
+    const policy = await import('./presetConfig')
+    const preset = createDefaultOpenAIProfile({ id: 'preset-a', isDefault: true, baseUrl: 'https://preset.example.com/v1', model: 'preset-model' })
+    policy.setPresetConfig({ customProviders: [], profiles: [preset] })
+
+    expect(policy.isPresetProviderSwitchable()).toBe(false)
+    const switched = { ...preset, provider: 'gemini' as const }
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [switched] }))
+    expect(enforced.profiles[0].provider).toBe('openai')
+    expect(enforced.profiles[0].baseUrl).toBe('https://preset.example.com/v1')
+  })
+
+  it('admits only declared provider-type switch patches through the locked-patch gate', async () => {
+    const { policy, preset } = await setup()
+
+    expect(policy.isPresetProviderSwitchPatch({ ...preset, provider: 'gemini' as const, baseUrl: '', model: 'x' })).toBe(true)
+    expect(policy.isPresetProviderSwitchPatch({ ...preset, provider: 'openai' as const })).toBe(true)
+    expect(policy.isPresetProviderSwitchPatch({ ...preset, provider: 'fal' as const })).toBe(false)
+    // 不含 provider 字段的自由编辑 patch 不放行，仍走字段白名单
+    expect(policy.isPresetProviderSwitchPatch({ baseUrl: 'https://evil.example.com' })).toBe(false)
+  })
+
+  it('keeps the provider switch reachable at the UI guard level in a locked deployment', async () => {
+    const { policy, preset, switchApiProfileProvider } = await setup()
+    // SettingsModal 三处守卫均由这些 lib 判定决定（组件无测试设施，等价覆盖）：
+    //   select.disabled = presetConfigOnly || (activeProfileLocked && !isPresetProviderSwitchable())
+    //   handleProviderTypeChange 早退 = presetConfigOnly || (activeProfileLocked && !providerSwitchable)
+    //   patch 白名单 = isPresetProviderSwitchPatch(patch)
+    const switchPatch = switchApiProfileProvider(preset, 'gemini')
+
+    expect(policy.isPresetConfigOnlyEnabled()).toBe(false)
+    expect(policy.isPresetProviderSwitchable()).toBe(true)
+    expect(policy.isPresetSwitchableProvider('gemini')).toBe(true)
+    expect(policy.isPresetProviderSwitchPatch(switchPatch)).toBe(true)
+  })
+
+  it('prefills the preset URL and model on the first real switch to gemini', async () => {
+    const { policy, normalizeSettings, preset, switchApiProfileProvider } = await setup()
+    // 首次切换无 gemini 存档：switchApiProfileProvider 落默认值（baseUrl='' + DEFAULT_GEMINI_MODEL），
+    // 由 enforce 按预置归位；此用例同时防止 DEFAULT_GEMINI_MODEL 与预置模型漂移
+    const switched = switchApiProfileProvider(preset, 'gemini')
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [switched] }))
+
+    expect(enforced.profiles[0].provider).toBe('gemini')
+    expect(enforced.profiles[0].baseUrl).toBe('https://gateway.example.com')
+    expect(enforced.profiles[0].model).toBe('gemini-3.1-flash-image-preview')
+    expect(enforced.profiles[0].providerDrafts?.openai?.model).toBe('gpt-image2')
+  })
+
+  it('restores the per-type draft when switching back to openai', async () => {
+    const { policy, normalizeSettings, preset, switchApiProfileProvider } = await setup()
+    const editedOpenAI = { ...preset, model: 'my-gpt-model' }
+    const toGemini = switchApiProfileProvider(editedOpenAI, 'gemini')
+    const backToOpenAI = switchApiProfileProvider(toGemini, 'openai')
+    const enforced = policy.enforcePresetConfigPolicy(normalizeSettings({ customProviders: [], profiles: [backToOpenAI] }))
+
+    expect(enforced.profiles[0].provider).toBe('openai')
+    expect(enforced.profiles[0].baseUrl).toBe('https://gateway.example.com/v1')
+    expect(enforced.profiles[0].model).toBe('my-gpt-model')
+  })
 })

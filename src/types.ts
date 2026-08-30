@@ -91,6 +91,18 @@ export interface ApiProfile {
   providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'reasoningEffort' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json' | 'streamImages' | 'streamPartialImages' | 'transparentBackgroundMethod'>>>>
 }
 
+/** 预置部署按服务商类型预填的固定参数 */
+export interface PresetProviderPreset {
+  baseUrl?: string
+  model?: string
+}
+
+/**
+ * 预置部署的「单配置 + 服务商类型切换」参数表。
+ * 提供该字段时：配置内允许在这些类型间切换，URL 按类型强制为固定值，模型 ID 仅预填。
+ */
+export type PresetProviderPresets = Partial<Record<ApiProvider, PresetProviderPreset>>
+
 export interface AppSettings {
   /** 旧版单配置字段：保留用于导入/查询参数兼容，实际请求以 active profile 为准 */
   baseUrl: string

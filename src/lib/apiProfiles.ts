@@ -12,10 +12,12 @@ import type {
   CustomProviderResultMapping,
   CustomProviderSubmitMapping,
   CustomProviderTemplate,
+  PresetProviderPresets,
 } from '../types'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, DEFAULT_ZIP_DOWNLOAD_ROUTES, ZIP_DOWNLOAD_ROUTE_VALUES } from '../types'
 import { customProviderSupportsNativeTransparentBackground } from './customProviderCapabilities'
 import { shouldUseApiProxy } from './devProxy'
+import { getPresetProviderPresets } from './presetConfig'
 import { normalizeReasoningEffort, normalizeStreamPartialImages, parseDefaultApiUrl } from './defaultApiUrl'
 import { readRuntimeEnv } from './runtimeEnv'
 import { isImportableConfigUrl } from './importableConfigUrl'
@@ -28,7 +30,7 @@ const DEFAULT_API_URL_PATCH = isImportableConfigUrl(RAW_DEFAULT_API_URL)
   ? null
   : parseDefaultApiUrl(RAW_DEFAULT_API_URL || (DOCKER_DEPLOYMENT && DEFAULT_OPENAI_API_PROXY ? '' : OPENAI_DEFAULT_BASE_URL))
 const DEFAULT_BASE_URL = DEFAULT_API_URL_PATCH?.baseUrl ?? ''
-export const DEFAULT_IMAGES_MODEL = 'gptiamge2'
+export const DEFAULT_IMAGES_MODEL = 'gpt-image2'
 export const DEFAULT_RESPONSES_MODEL = 'gpt-5.6-sol'
 export const DEFAULT_FAL_BASE_URL = 'https://fal.run'
 export const DEFAULT_FAL_MODEL = 'openai/gpt-image-2'
@@ -804,6 +806,27 @@ export interface ImportedProviderSettings {
   customProviders: CustomProviderDefinition[]
   profiles: ApiProfile[]
   presetProfileFields?: Record<string, string[]>
+  providerPresets?: PresetProviderPresets
+}
+
+/**
+ * 解析部署配置中的 providerPresets（单配置 + 服务商类型切换）。
+ * 仅接受 openai / gemini 两个内置类型，其余键忽略；非法条目整体丢弃。
+ */
+function parseProviderPresets(raw: unknown): { providerPresets?: PresetProviderPresets } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const allowed = new Set(['openai', 'gemini'])
+  const source = raw as Record<string, unknown>
+  const result: PresetProviderPresets = {}
+  for (const [provider, value] of Object.entries(source)) {
+    if (!allowed.has(provider) || !value || typeof value !== 'object' || Array.isArray(value)) continue
+    const record = value as Record<string, unknown>
+    const preset: { baseUrl?: string; model?: string } = {}
+    if (typeof record.baseUrl === 'string' && record.baseUrl.trim()) preset.baseUrl = record.baseUrl.trim()
+    if (typeof record.model === 'string' && record.model.trim()) preset.model = record.model.trim()
+    if (preset.baseUrl || preset.model) result[provider as keyof PresetProviderPresets] = preset
+  }
+  return Object.keys(result).length ? { providerPresets: result } : {}
 }
 
 function validateCustomProviderTaskMappings(providers: CustomProviderDefinition[]) {
@@ -854,6 +877,7 @@ export function importCustomProviderSettingsFromJson(
     return {
       customProviders,
       profiles,
+      ...parseProviderPresets(record.providerPresets),
       ...(profileEntries.length
         ? { presetProfileFields: Object.fromEntries(profileEntries.map((entry) => [entry.profile.id, Object.keys(entry.source)])) }
         : {}),
@@ -1201,7 +1225,15 @@ export function mergePresetImportedSettings(
       ? mergePresetProfileSnapshot(previous, normalizedProfile, fields)
       : normalizedProfile
     if (!matched) return importedProfile
-    if (options.lockPresetParams) return { ...importedProfile, apiKey: matched.apiKey }
+    if (options.lockPresetParams) {
+      // 单配置类型切换：用户在配置内切换过服务商类型时，保留其选择与模型草稿，避免每次启动被重置
+      const providerPresets = getPresetProviderPresets()
+      const switched = matched.provider !== importedProfile.provider
+        && Boolean(providerPresets?.[matched.provider as keyof NonNullable<typeof providerPresets>])
+      return switched
+        ? { ...importedProfile, provider: matched.provider, model: matched.model, providerDrafts: matched.providerDrafts, apiKey: matched.apiKey }
+        : { ...importedProfile, apiKey: matched.apiKey }
+    }
     if (!previous) return { ...matched, baseUrl: importedProfile.baseUrl, isDefault: importedProfile.isDefault }
 
     const changed: Partial<ApiProfile> = {}

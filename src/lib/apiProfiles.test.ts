@@ -23,6 +23,7 @@ import {
   validateApiProfile,
 } from './apiProfiles'
 import { CUSTOM_PROVIDER_LLM_PROMPT, DEFAULT_CUSTOM_PROVIDER_JSON } from './settingsCustomProvider'
+import { setPresetConfig } from './presetConfig'
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -1669,5 +1670,86 @@ describe('custom providers', () => {
     expect(restoredProfile.baseUrl).toBe('https://api.compat.example.com/v1')
     expect(restoredProfile.model).toBe('custom-openai-model')
     expect(restoredProfile.apiProxy).toBe(false)
+  })
+})
+
+describe('providerPresets (single profile + provider type switching)', () => {
+  const PRESET_PROFILE = {
+    id: 'default-openai',
+    name: '官网图片',
+    provider: 'openai',
+    baseUrl: 'https://gateway.example.com/v1',
+    apiKey: '',
+    model: 'gpt-image2',
+    timeout: 600,
+    apiMode: 'images' as const,
+    codexCli: false,
+    apiProxy: false,
+    transparentBackgroundMethod: 'local' as const,
+  }
+  const PROVIDER_PRESETS = {
+    openai: { baseUrl: 'https://gateway.example.com/v1', model: 'gpt-image2' },
+    gemini: { baseUrl: 'https://gateway.example.com', model: 'gemini-3.1-flash-image-preview' },
+  }
+
+  it('parses providerPresets from a deployment config and drops non built-in types', () => {
+    const json = JSON.stringify({
+      customProviders: [],
+      profiles: [PRESET_PROFILE],
+      providerPresets: {
+        ...PROVIDER_PRESETS,
+        fal: { baseUrl: 'https://fal.run' },
+        bogus: 'not-an-object',
+      },
+    })
+    const imported = importCustomProviderSettingsFromJson(json, [], { deploymentConfig: true })
+
+    expect(imported.providerPresets).toEqual(PROVIDER_PRESETS)
+  })
+
+  it('keeps a user-switched provider and model across preset merges under locked params', () => {
+    setPresetConfig({ customProviders: [], profiles: [PRESET_PROFILE], providerPresets: PROVIDER_PRESETS })
+    try {
+      const current = normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [{
+          ...PRESET_PROFILE,
+          provider: 'gemini',
+          model: 'gemini-3.1-flash-image-preview',
+          apiKey: 'user-key',
+        }],
+        activeProfileId: 'default-openai',
+      })
+      const result = mergeDefaultImportedSettings(current, { customProviders: [], profiles: [PRESET_PROFILE] }, { lockPresetParams: true })
+
+      expect(result.settings.profiles[0]).toMatchObject({
+        id: 'default-openai',
+        provider: 'gemini',
+        model: 'gemini-3.1-flash-image-preview',
+        apiKey: 'user-key',
+      })
+    } finally {
+      setPresetConfig(null)
+    }
+  })
+
+  it('resets to the preset provider across preset merges when the user never switched', () => {
+    setPresetConfig({ customProviders: [], profiles: [PRESET_PROFILE], providerPresets: PROVIDER_PRESETS })
+    try {
+      const current = normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [{ ...PRESET_PROFILE, apiKey: 'user-key', model: 'user-model' }],
+        activeProfileId: 'default-openai',
+      })
+      const result = mergeDefaultImportedSettings(current, { customProviders: [], profiles: [PRESET_PROFILE] }, { lockPresetParams: true })
+
+      expect(result.settings.profiles[0]).toMatchObject({
+        provider: 'openai',
+        model: 'gpt-image2',
+        apiKey: 'user-key',
+      })
+    } finally {
+      setPresetConfig(null)
+    }
   })
 })

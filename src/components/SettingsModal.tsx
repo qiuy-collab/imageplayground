@@ -36,8 +36,12 @@ import {
   isPresetConfigOnlyEnabled,
   isPresetProvider,
   isPresetProviderDeletionPrevented,
+  isPresetProfileFieldUnlocked,
   isPresetProfileLocked,
   isPresetProviderLocked,
+  isPresetProviderSwitchable,
+  isPresetProviderSwitchPatch,
+  isPresetSwitchableProvider,
 } from '../lib/presetConfig'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { createCustomProfileImportUrl } from '../lib/profileImportUrl'
@@ -56,7 +60,6 @@ import ViewportTooltip from './ViewportTooltip'
 import { ChevronDownIcon, CloseIcon, CopyIcon, PlusIcon, TrashIcon, GithubIcon, ExportIcon, ImportIcon, DragHandleIcon, LinkIcon } from './icons'
 import { TooltipButton } from './TooltipButton'
 import GeneralSettingsTab from './settings/GeneralSettingsTab'
-import AgentSettingsTab from './settings/AgentSettingsTab'
 import CustomProviderModal from './settings/CustomProviderModal'
 import ProfileImportUrlModal, { type CopyImportUrlOptions } from './settings/ProfileImportUrlModal'
 import ZipDownloadRouteModal, { ZIP_DOWNLOAD_ROUTE_OPTIONS } from './settings/ZipDownloadRouteModal'
@@ -227,10 +230,13 @@ export default function SettingsModal() {
     ? draft.profiles.filter((profile) => presetProfileIds.has(profile.id))
     : draft.profiles
   const profileMenuDisabled = presetConfigOnly && visibleProfiles.length <= 1
+  // 「单配置 + 类型切换」的锁定部署：只保留唯一预置配置，隐藏新建/复制入口
+  const singlePresetProfileMode = isPresetProviderSwitchable()
   const defaultProfileId = getDefaultPresetProfileId() ?? getDefaultApiProfileId(draft)
   const activeProfile = draft.profiles.find((profile) => profile.id === draft.activeProfileId) ?? draft.profiles[0] ?? getActiveApiProfile(draft)
   const activePresetDescription = getPresetProfileDescription(activeProfile.id)
   const activeProfileLocked = isPresetProfileLocked(activeProfile.id)
+  const activeProfileModelUnlocked = isPresetProfileFieldUnlocked('model')
   const activeProviderIsOpenAICompatible = isOpenAICompatibleProvider(draft, activeProfile.provider)
   const activeProviderUsesApiUrl = activeProviderIsOpenAICompatible || activeProfile.provider === 'gemini'
   const activeProviderIsGemini = activeProfile.provider === 'gemini'
@@ -520,15 +526,23 @@ export default function SettingsModal() {
       profiles: draft.profiles.map((profile) => profile.id === activeProfile.id ? { ...profile, ...patch } : profile),
     })
 
+  const isLockedProfilePatchAllowed = (patch: Partial<ApiProfile>) => {
+    const entries = Object.entries(patch)
+    if (entries.length === 0) return false
+    // providerPresets 切换模式：切换类型的整包 patch 放行（baseUrl/model 由 enforce 按预置归位）
+    if (isPresetProviderSwitchPatch(patch)) return true
+    return entries.every(([key, value]) => (key === 'apiKey' ? value !== undefined : isPresetProfileFieldUnlocked(key)))
+  }
+
   const updateActiveProfile = (patch: Partial<ApiProfile>, commit = false) => {
-    if (activeProfileLocked && (Object.keys(patch).length !== 1 || patch.apiKey === undefined)) return
+    if (activeProfileLocked && !isLockedProfilePatchAllowed(patch)) return
     const nextDraft = getDraftWithActiveProfilePatch(patch)
     setDraft(nextDraft)
     if (commit) commitSettings(nextDraft)
   }
 
   const commitActiveProfilePatch = (patch: Partial<ApiProfile>) => {
-    if (activeProfileLocked && (Object.keys(patch).length !== 1 || patch.apiKey === undefined)) return
+    if (activeProfileLocked && !isLockedProfilePatchAllowed(patch)) return
     const nextDraft = getDraftWithActiveProfilePatch(patch)
     commitSettings(nextDraft)
   }
@@ -693,7 +707,8 @@ export default function SettingsModal() {
   }
 
   const createNewProfile = () => {
-    if (presetConfigOnly) return
+    // 锁定的预置部署只保留唯一配置，新建的配置会被收敛移除
+    if (presetConfigOnly || isPresetProviderSwitchable()) return
     setReusedTaskApiProfile(null)
     const profile = createDefaultOpenAIProfile({ id: newId('openai'), name: '新配置' })
     const nextDraft = normalizeSettings({ 
@@ -725,7 +740,8 @@ export default function SettingsModal() {
   }
 
   const duplicateActiveProfile = () => {
-    if (presetConfigOnly) return
+    // 锁定的预置部署只保留唯一配置，禁止复制出会被收敛移除的副本
+    if (presetConfigOnly || isPresetProviderSwitchable()) return
     setReusedTaskApiProfile(null)
     setDuplicateProfileTooltipVisible(false)
     const profile: ApiProfile = {
@@ -924,8 +940,10 @@ export default function SettingsModal() {
   }
 
   const handleProviderTypeChange = (value: string | number) => {
-    if (presetConfigOnly || activeProfileLocked) return
+    const providerSwitchable = isPresetProviderSwitchable()
+    if (presetConfigOnly || (activeProfileLocked && !providerSwitchable)) return
     if (value === ADD_CUSTOM_PROVIDER_VALUE) {
+      if (activeProfileLocked) return
       setEditingCustomProviderId(null)
       setCustomProviderJson(DEFAULT_CUSTOM_PROVIDER_JSON)
       setShowCustomProviderImport(true)
@@ -933,9 +951,11 @@ export default function SettingsModal() {
       return
     }
 
-    const provider = String(value) as ApiProfile['provider']
+    const provider = String(value)
+    // 锁定的预置配置只允许在 providerPresets 声明的类型间切换
+    if (activeProfileLocked && !isPresetSwitchableProvider(provider)) return
     const customProvider = getCustomProviderDefinition(draft, provider) ?? undefined
-    updateActiveProfile(switchApiProfileProvider(activeProfile, provider, customProvider), true)
+    updateActiveProfile(switchApiProfileProvider(activeProfile, provider as ApiProfile['provider'], customProvider), true)
   }
 
   const closeCustomProviderModal = () => {
@@ -1162,17 +1182,6 @@ export default function SettingsModal() {
                 习惯配置
               </button>
               <button
-                onClick={() => setActiveTab('agent')}
-                className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'agent' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8V4H8" />
-                  <rect width="16" height="12" x="4" y="8" rx="2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2 14h2M20 14h2M15 13v2M9 13v2" />
-                </svg>
-                Agent 配置
-              </button>
-              <button
                 onClick={() => setActiveTab('data')}
                 className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'data' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}
               >
@@ -1206,21 +1215,6 @@ export default function SettingsModal() {
               />
             )}
 
-            {activeTab === 'agent' && (
-              <AgentSettingsTab
-                draft={draft}
-                agentMaxToolRoundsInput={agentMaxToolRoundsInput}
-                agentTextProfileOptions={agentTextProfileOptions}
-                agentImageProfileOptions={agentImageProfileOptions}
-                selectedAgentTextProfile={selectedAgentTextProfile}
-                selectedAgentImageProfile={selectedAgentImageProfile}
-                setAgentMaxToolRoundsInput={setAgentMaxToolRoundsInput}
-                updateAgentApiConfigMode={updateAgentApiConfigMode}
-                commitSettings={commitSettings}
-                commitAgentMaxToolRounds={commitAgentMaxToolRounds}
-              />
-            )}
-            
             {activeTab === 'api' && (
               <div className="space-y-4">
                 <div>
@@ -1252,7 +1246,7 @@ export default function SettingsModal() {
                         复制导入 URL
                       </ViewportTooltip>
                     </span>
-                    {!presetConfigOnly && <span className="relative inline-flex">
+                    {!presetConfigOnly && !singlePresetProfileMode && <span className="relative inline-flex">
                       <button
                         type="button"
                         onClick={duplicateActiveProfile}
@@ -1307,7 +1301,7 @@ export default function SettingsModal() {
                           className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-gray-200/60 bg-white/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl animate-dropdown-down dark:border-white/[0.08] dark:bg-gray-900/95 dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar"
                           style={{ maxHeight: profileMenuMaxHeight }}
                         >
-                          {!presetConfigOnly && <button
+                          {!presetConfigOnly && !singlePresetProfileMode && <button
                             type="button"
                             onClick={(e) => {
                               e.preventDefault()
@@ -1443,7 +1437,7 @@ export default function SettingsModal() {
                   onChange={handleProviderTypeChange}
                   onReorder={handleProviderReorder}
                   options={providerOptions}
-                  disabled={presetConfigOnly || activeProfileLocked}
+                  disabled={presetConfigOnly || (activeProfileLocked && !isPresetProviderSwitchable())}
                   className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                 />
               </div>
@@ -1575,7 +1569,7 @@ export default function SettingsModal() {
                   onChange={(e) => updateActiveProfile({ model: e.target.value })}
                   onBlur={(e) => commitActiveProfilePatch({ model: e.target.value })}
                   type="text"
-                  disabled={activeProfileLocked}
+                  disabled={activeProfileLocked && !activeProfileModelUnlocked}
                   placeholder={activeProviderIsGemini ? DEFAULT_GEMINI_MODEL : getDefaultModelForMode(activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode)}
                   className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                 />

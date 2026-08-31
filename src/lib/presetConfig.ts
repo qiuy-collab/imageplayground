@@ -1,4 +1,4 @@
-import type { ApiProfile, AppSettings, CustomProviderDefinition, PresetProviderPresets } from '../types'
+import type { ApiProfile, ApiProvider, AppSettings, CustomProviderDefinition, PresetProviderPresets } from '../types'
 import { readRuntimeEnv } from './runtimeEnv'
 
 const RAW_SHOW_PRESET_CONFIG_ONLY = readRuntimeEnv(import.meta.env.VITE_SHOW_PRESET_CONFIG_ONLY)
@@ -14,6 +14,21 @@ const UNLOCKED_PRESET_FIELDS = readRuntimeEnv(import.meta.env.VITE_PRESET_UNLOCK
 const PROTECTED_PRESET_FIELDS = new Set(['id', 'apiKey', 'provider', 'isDefault'])
 // 「单配置 + 类型切换」模式下允许用户在配置内切换的服务商类型
 const SWITCHABLE_PRESET_PROVIDERS = new Set<string>(['openai', 'gemini'])
+// 预填模型历史值迁移（VITE_PRESET_MODEL_MIGRATIONS=旧值:新值，逗号分隔多组）：
+// 部署方更新预填模型后，仍停留在旧预填值（即未自定义）的存量配置在启动 enforce 时自动跟随新值
+const PRESET_MODEL_MIGRATIONS = parsePresetModelMigrations(readRuntimeEnv(import.meta.env.VITE_PRESET_MODEL_MIGRATIONS))
+
+function parsePresetModelMigrations(raw: string): Map<string, string> {
+  const migrations = new Map<string, string>()
+  for (const pair of raw.split(',')) {
+    const separatorIndex = pair.indexOf(':')
+    if (separatorIndex <= 0) continue
+    const from = pair.slice(0, separatorIndex).trim()
+    const to = pair.slice(separatorIndex + 1).trim()
+    if (from && to) migrations.set(from, to)
+  }
+  return migrations
+}
 
 let presetProfiles: ApiProfile[] = []
 let presetProviders: CustomProviderDefinition[] = []
@@ -141,6 +156,21 @@ function getPresetProviderPreset(provider: string) {
   return presetProviderPresets?.[provider.trim() as keyof PresetProviderPresets]
 }
 
+/** 旧预填模型值 → 当前预填值；用户自定义值与空值原样返回 */
+export function migratePresetModelValue(model: string): string {
+  if (!model.trim()) return model
+  return PRESET_MODEL_MIGRATIONS.get(model.trim()) ?? model
+}
+
+/** 分类型存档（providerDrafts）里的旧预填模型值一并迁移，避免切换类型时旧值回流 */
+function migrateProviderDraftModels(drafts: NonNullable<ApiProfile['providerDrafts']>): NonNullable<ApiProfile['providerDrafts']> {
+  const migrated: NonNullable<ApiProfile['providerDrafts']> = {}
+  for (const [provider, draft] of Object.entries(drafts)) {
+    migrated[provider as ApiProvider] = draft?.model ? { ...draft, model: migratePresetModelValue(draft.model) } : draft
+  }
+  return migrated
+}
+
 export function isPresetProviderLocked(id: string) {
   return isPresetConfigParamsLocked() && isPresetProvider(id)
 }
@@ -178,7 +208,7 @@ export function enforcePresetConfigPolicy(
       provider: nextProvider,
       isDefault: profile.id === defaultPresetProfileId ? true : undefined,
     }
-    if (providerSwitchable && profile.providerDrafts) enforced.providerDrafts = profile.providerDrafts
+    if (providerSwitchable && profile.providerDrafts) enforced.providerDrafts = migrateProviderDraftModels(profile.providerDrafts)
     if (providerPreset) {
       if (typeof providerPreset.baseUrl === 'string') enforced.baseUrl = providerPreset.baseUrl
       if (typeof providerPreset.model === 'string') enforced.model = providerPreset.model
@@ -189,6 +219,8 @@ export function enforcePresetConfigPolicy(
         if (PROTECTED_PRESET_FIELDS.has(field)) continue
         ;(enforced as unknown as Record<string, unknown>)[field] = profileRecord[field]
       }
+      // 存量用户停留在旧预填模型值（未自定义）时跟随新预填，自定义值原样保留
+      if (UNLOCKED_PRESET_FIELDS.includes('model')) enforced.model = migratePresetModelValue(enforced.model)
     }
     return enforced
   })

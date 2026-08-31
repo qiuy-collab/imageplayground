@@ -552,4 +552,58 @@ describe('preset provider switch mode (single profile + providerPresets)', () =>
     const sameProvider = policy.applyPresetProviderSwitch({ ...preset, baseUrl: 'https://whatever.example.com' }, 'openai')
     expect(sameProvider.baseUrl).toBe('https://gateway.example.com/v1')
   })
+
+  it('migrates stored legacy preset model values to the updated prefill on enforce', async () => {
+    // 线上改版场景：预填从 gpt-image2 更新为 gpt-image-2（网关只认 gpt-image- 前缀）。
+    // model 是豁免字段（enforce 用存量值覆盖预置），必须靠迁移映射让未自定义的存量配置跟随新预填。
+    vi.stubEnv('VITE_LOCK_PRESET_CONFIG_PARAMS', 'true')
+    vi.stubEnv('VITE_PRESET_UNLOCKED_FIELDS', 'model')
+    vi.stubEnv('VITE_PRESET_MODEL_MIGRATIONS', 'gpt-image2:gpt-image-2,gptiamge2:gpt-image-2')
+    const { createDefaultOpenAIProfile, normalizeSettings } = await import('./apiProfiles')
+    const policy = await import('./presetConfig')
+    const preset = createDefaultOpenAIProfile({
+      id: 'default-openai',
+      isDefault: true,
+      name: '官网图片',
+      baseUrl: 'https://sshzyu.com',
+      model: 'gpt-image-2',
+    })
+    policy.setPresetConfig({
+      customProviders: [],
+      profiles: [preset],
+      providerPresets: {
+        openai: { baseUrl: 'https://sshzyu.com', model: 'gpt-image-2' },
+        gemini: { baseUrl: 'https://sshzyu.com', model: 'gemini-3.1-flash-image-preview' },
+      },
+    })
+
+    // 未自定义（停留在旧预填值）→ 迁移到新预填值；providerDrafts 存档同步迁移（防切换类型时旧值回流）
+    const legacy = policy.enforcePresetConfigPolicy(normalizeSettings({
+      customProviders: [],
+      profiles: [{ ...preset, model: 'gpt-image2', providerDrafts: { gemini: { model: 'gpt-image2', baseUrl: 'https://sshzyu.com' } } }],
+    }))
+    expect(legacy.profiles[0].model).toBe('gpt-image-2')
+    expect(legacy.profiles[0].providerDrafts?.gemini?.model).toBe('gpt-image-2')
+
+    // 历史错拼值同样迁移
+    const typo = policy.enforcePresetConfigPolicy(normalizeSettings({
+      customProviders: [],
+      profiles: [{ ...preset, model: 'gptiamge2' }],
+    }))
+    expect(typo.profiles[0].model).toBe('gpt-image-2')
+
+    // 用户自定义值不受影响
+    const customized = policy.enforcePresetConfigPolicy(normalizeSettings({
+      customProviders: [],
+      profiles: [{ ...preset, model: 'my-own-model' }],
+    }))
+    expect(customized.profiles[0].model).toBe('my-own-model')
+  })
+
+  it('leaves model values untouched when no migration map is configured', async () => {
+    const { policy } = await setup()
+    expect(policy.migratePresetModelValue('gpt-image2')).toBe('gpt-image2')
+    expect(policy.migratePresetModelValue('my-own-model')).toBe('my-own-model')
+    expect(policy.migratePresetModelValue('')).toBe('')
+  })
 })

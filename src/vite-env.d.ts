@@ -13,6 +13,8 @@ interface ImportMetaEnv {
   readonly VITE_LOCK_PRESET_CONFIG_PARAMS?: string
   readonly VITE_PREVENT_PRESET_CONFIG_DELETION?: string
   readonly VITE_SHOW_DEFAULT_CONFIG_ONLY?: string
+  readonly VITE_PRESET_UNLOCKED_FIELDS?: string
+  readonly VITE_PRESET_MODEL_MIGRATIONS?: string
 }
 
 interface ImportMeta {

@@ -42,6 +42,7 @@ import {
   isPresetProviderSwitchable,
   isPresetProviderSwitchPatch,
   isPresetSwitchableProvider,
+  applyPresetProviderSwitch,
 } from '../lib/presetConfig'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { createCustomProfileImportUrl } from '../lib/profileImportUrl'
@@ -422,7 +423,7 @@ export default function SettingsModal() {
         ? getDefaultPresetBaseUrl()
         : DEFAULT_SETTINGS.baseUrl
       const normalizedBaseUrl = profile.provider === 'gemini'
-        ? profile.baseUrl.trim().replace(/\/+$/, '')
+        ? profile.baseUrl.trim().replace(/\/+$/, '') || emptyBaseUrlFallback
         : shouldKeepEmptyBaseUrl ? '' : normalizeBaseUrl(profile.baseUrl.trim() || emptyBaseUrlFallback)
       const defaultModel = profile.provider === 'gemini' ? DEFAULT_GEMINI_MODEL : getDefaultModelForMode(profile.apiMode)
       return {
@@ -955,7 +956,14 @@ export default function SettingsModal() {
     // 锁定的预置配置只允许在 providerPresets 声明的类型间切换
     if (activeProfileLocked && !isPresetSwitchableProvider(provider)) return
     const customProvider = getCustomProviderDefinition(draft, provider) ?? undefined
-    updateActiveProfile(switchApiProfileProvider(activeProfile, provider as ApiProfile['provider'], customProvider), true)
+    // 切换结果先按 providerPresets 归位（预置 URL / 预填 model）再写入 draft，
+    // 否则首切 gemini 会落空 baseUrl（enforce 只在启动/导入时运行，救不了运行中的 draft）
+    const nextProvider = provider as ApiProfile['provider']
+    const nextProfile = applyPresetProviderSwitch(
+      switchApiProfileProvider(activeProfile, nextProvider, customProvider),
+      nextProvider,
+    )
+    updateActiveProfile(nextProfile, true)
   }
 
   const closeCustomProviderModal = () => {

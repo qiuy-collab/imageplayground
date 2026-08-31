@@ -120,6 +120,23 @@ export function isPresetProviderSwitchPatch(patch: Partial<ApiProfile>) {
   return typeof provider === 'string' && isPresetSwitchableProvider(provider)
 }
 
+/**
+ * 类型切换模式下，把 switchApiProfileProvider 的结果按 providerPresets 归位：
+ * baseUrl 强制为该类型的预置地址（URL 固定），model 仅在为空时预填（保留用户自定义）。
+ * 必须在写入 draft/store 前调用——enforce 只在启动/导入时运行，运行中保存不经过它，
+ * 否则 switchApiProfileProvider 的空 baseUrl fallback 会以空 URL 显示并持久化。
+ */
+export function applyPresetProviderSwitch(profile: ApiProfile, provider: ApiProfile['provider']): ApiProfile {
+  if (!isPresetProviderSwitchable() || profile.provider !== provider) return profile
+  const preset = getPresetProviderPreset(provider)
+  if (!preset) return profile
+  return {
+    ...profile,
+    baseUrl: typeof preset.baseUrl === 'string' ? preset.baseUrl : profile.baseUrl,
+    model: typeof preset.model === 'string' && !profile.model.trim() ? preset.model : profile.model,
+  }
+}
+
 function getPresetProviderPreset(provider: string) {
   return presetProviderPresets?.[provider.trim() as keyof PresetProviderPresets]
 }

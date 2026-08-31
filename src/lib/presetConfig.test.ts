@@ -493,4 +493,63 @@ describe('preset provider switch mode (single profile + providerPresets)', () =>
     expect(enforced.profiles[0].baseUrl).toBe('https://gateway.example.com/v1')
     expect(enforced.profiles[0].model).toBe('my-gpt-model')
   })
+
+  it('pins the preset baseUrl into the draft on the first switch to gemini (before any enforce runs)', async () => {
+    const { policy, preset, switchApiProfileProvider } = await setup()
+    // 复现线上 bug：首切 gemini 时 switchApiProfileProvider 落空 baseUrl fallback，
+    // 运行中保存不经过 enforce，空 URL 会直接显示并持久化。
+    // UI 层修复 = 写入 draft 前先过 applyPresetProviderSwitch
+    const switched = switchApiProfileProvider(preset, 'gemini')
+    expect(switched.baseUrl).toBe('')
+
+    const pinned = policy.applyPresetProviderSwitch(switched, 'gemini')
+    expect(pinned.baseUrl).toBe('https://gateway.example.com')
+    expect(pinned.model).toBe('gemini-3.1-flash-image-preview')
+    // providerDrafts 里的 openai 存档不受影响
+    expect(pinned.providerDrafts?.openai?.model).toBe('gpt-image2')
+  })
+
+  it('pins the preset baseUrl when switching back to openai, overriding any stale saved draft', async () => {
+    const { policy, preset, switchApiProfileProvider } = await setup()
+    const toGemini = switchApiProfileProvider(preset, 'gemini')
+    const backToOpenAI = switchApiProfileProvider(toGemini, 'openai')
+    // providerDrafts.openai 里存档的 baseUrl 可能是带 /v1 的历史值，URL 固定语义下仍归位为预置值
+    const pinned = policy.applyPresetProviderSwitch(backToOpenAI, 'openai')
+
+    expect(pinned.baseUrl).toBe('https://gateway.example.com/v1')
+    expect(pinned.model).toBe('gpt-image2')
+  })
+
+  it('keeps a user-edited model when pinning the preset baseUrl', async () => {
+    const { policy, preset, switchApiProfileProvider } = await setup()
+    // 用户在 gemini 上改过 model（UNLOCKED_PRESET_FIELDS=model 的恢复形态）：
+    // 归位只固定 URL，model 保留用户值
+    const toGemini = { ...switchApiProfileProvider(preset, 'gemini'), model: 'my-custom-gemini-model' }
+    const pinned = policy.applyPresetProviderSwitch(toGemini, 'gemini')
+
+    expect(pinned.baseUrl).toBe('https://gateway.example.com')
+    expect(pinned.model).toBe('my-custom-gemini-model')
+  })
+
+  it('leaves switch results untouched when switch mode is off or the target is outside providerPresets', async () => {
+    // 未启用切换模式（无 providerPresets）
+    vi.stubEnv('VITE_LOCK_PRESET_CONFIG_PARAMS', 'true')
+    vi.stubEnv('VITE_PRESET_UNLOCKED_FIELDS', 'model')
+    const { createDefaultOpenAIProfile } = await import('./apiProfiles')
+    const plain = await import('./presetConfig')
+    const bare = createDefaultOpenAIProfile({ id: 'preset-a', isDefault: true, baseUrl: 'https://preset.example.com/v1', model: 'preset-model' })
+    plain.setPresetConfig({ customProviders: [], profiles: [bare] })
+    const untouched = plain.applyPresetProviderSwitch({ ...bare, baseUrl: 'https://user.example.com' }, 'openai')
+    expect(untouched.baseUrl).toBe('https://user.example.com')
+
+    // 切换模式开启，但目标类型不在 providerPresets（如自定义服务商）
+    const { policy, preset } = await setup()
+    const custom = { ...preset, provider: 'some-custom' as typeof preset.provider, baseUrl: 'https://custom.example.com' }
+    const customResult = policy.applyPresetProviderSwitch(custom, 'some-custom')
+    expect(customResult.baseUrl).toBe('https://custom.example.com')
+
+    // 同 provider 调用同样归位（URL 固定语义不依赖「刚切换」状态）
+    const sameProvider = policy.applyPresetProviderSwitch({ ...preset, baseUrl: 'https://whatever.example.com' }, 'openai')
+    expect(sameProvider.baseUrl).toBe('https://gateway.example.com/v1')
+  })
 })

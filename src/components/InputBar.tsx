@@ -478,7 +478,10 @@ export default function InputBar() {
     : `OpenAI 最大请求数量为 ${outputImageLimit}`
   const displaySize = isFalTextToImage && params.size === 'auto'
     ? DEFAULT_FAL_IMAGE_SIZE
-    : (activeProfile.codexCli ? normalizeCodexCliImageSize(params.size) : normalizeImageSize(params.size)) || DEFAULT_PARAMS.size
+    // Gemini 分组的像素值来自官方档位表（4K 21:9 等超出手动规整上限），原样展示
+    : (activeProfile.codexCli
+      ? normalizeCodexCliImageSize(params.size)
+      : (activeProfile.provider === 'gemini' ? params.size : normalizeImageSize(params.size))) || DEFAULT_PARAMS.size
 
   const qualityOptions = isFalProvider
     ? [
@@ -1573,6 +1576,7 @@ export default function InputBar() {
           onClose={() => setShowSizePicker(false)}
           allowAuto={!isFalTextToImage}
           codexCli={activeProfile.codexCli}
+          providerVariant={activeProfile.provider === 'gemini' ? 'gemini' : 'openai'}
         />
       )}
 

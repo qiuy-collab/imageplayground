@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { calculateImageSize, normalizeCodexCliImageSize, normalizeImageSize, parseRatio, type SizeTier } from '../lib/size'
+import { calculateGeminiImageSize, calculateImageSize, convertImageSizeForProvider, findSizePresetFor, normalizeCodexCliImageSize, normalizeImageSize, parseRatio, type SizeTier, type SizeVariant } from '../lib/size'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import ViewportTooltip from './ViewportTooltip'
 
 const TIERS: SizeTier[] = ['1K', '2K', '4K']
 const SIZE_LIMIT_TEXT = '由于模型限制，不符合要求的分辨率会被自动规整：\n宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
 const CODEX_CLI_SIZE_LIMIT_TEXT = '由于模型和 Codex CLI 限制，不符合要求的分辨率会被自动规整：\n宽高均为 16 的倍数，宽高比不超过 3:1，分辨率不超过 1K。'
+const GEMINI_SIZE_LIMIT_TEXT = 'Gemini 按官方档位出图：比例会映射到最接近的官方支持值（1:1、2:3、3:2、3:4、4:3、4:5、5:4、9:16、16:9、21:9），分辨率按基准档（1K/2K/4K）输出。'
 const CLAMPED_SIZE_TEXT = '由于模型限制，原始分辨率已被自动规整'
+const GEMINI_CLAMPED_SIZE_TEXT = 'Gemini 会把该尺寸映射到最接近的官方档位输出'
 const RATIOS = [
   { label: '1:1', value: '1:1' },
   { label: '3:2', value: '3:2' },
@@ -24,6 +26,7 @@ interface Props {
   onClose: () => void
   allowAuto?: boolean
   codexCli?: boolean
+  providerVariant?: SizeVariant
 }
 
 type Mode = 'auto' | 'ratio' | 'resolution'
@@ -34,19 +37,11 @@ function parseSize(size: string) {
   return { width: match[1], height: match[2] }
 }
 
-function findPresetForSize(size: string) {
-  const normalized = normalizeImageSize(size)
-  for (const tier of TIERS) {
-    for (const ratio of RATIOS) {
-      if (calculateImageSize(tier, ratio.value) === normalized) {
-        return { tier, ratio: ratio.value }
-      }
-    }
-  }
-  return null
+function findPresetForSize(size: string, variant: SizeVariant) {
+  return findSizePresetFor(size, variant)
 }
 
-export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true, codexCli = false }: Props) {
+export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true, codexCli = false, providerVariant = 'openai' }: Props) {
   usePreventBackgroundScroll(true)
 
   const modalRef = useRef<HTMLDivElement>(null)
@@ -72,7 +67,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     mouseDownTargetRef.current = null
   }
 
-  const currentPreset = findPresetForSize(currentSize)
+  const currentPreset = findPresetForSize(currentSize, providerVariant)
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
     if (!currentSize || currentSize === 'auto') return allowAuto ? 'auto' : 'ratio'
@@ -100,7 +95,10 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
   }, [])
 
   const normalizeSize = codexCli ? normalizeCodexCliImageSize : normalizeImageSize
-  const sizeLimitText = codexCli ? CODEX_CLI_SIZE_LIMIT_TEXT : SIZE_LIMIT_TEXT
+  const sizeLimitText = codexCli
+    ? CODEX_CLI_SIZE_LIMIT_TEXT
+    : (providerVariant === 'gemini' ? GEMINI_SIZE_LIMIT_TEXT : SIZE_LIMIT_TEXT)
+  const clampedSizeText = providerVariant === 'gemini' ? GEMINI_CLAMPED_SIZE_TEXT : CLAMPED_SIZE_TEXT
 
   const activeRatio = ratio === 'custom' ? customRatio : ratio
   const parsedCustomRatio = parseRatio(customRatio)
@@ -113,23 +111,26 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
 
   const previewSize = useMemo(() => {
     if (mode === 'auto') return 'auto'
-    
+
     if (mode === 'ratio') {
+      // Gemini 分组直接展示官方档位像素值（4K 21:9 等超出手动规整上限，不能再过 normalize）
+      if (providerVariant === 'gemini') return calculateGeminiImageSize(tier, activeRatio) ?? ''
       const size = calculateImageSize(tier, activeRatio)
       return size ? normalizeSize(size) : ''
     }
-    
+
     if (mode === 'resolution') {
       const w = parseInt(customW, 10)
       const h = parseInt(customH, 10)
       if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-        return normalizeSize(`${w}x${h}`)
+        const normalized = normalizeSize(`${w}x${h}`)
+        return providerVariant === 'gemini' ? convertImageSizeForProvider(normalized, 'gemini') : normalized
       }
       return ''
     }
-    
+
     return ''
-  }, [mode, tier, activeRatio, customW, customH, normalizeSize])
+  }, [mode, tier, activeRatio, customW, customH, normalizeSize, providerVariant])
 
   const isClamped = useMemo(() => {
     if (!previewSize || previewSize === 'auto') return false
@@ -413,7 +414,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <ViewportTooltip visible={hintVisible} className="w-56 whitespace-pre-line text-center">
-                    {CLAMPED_SIZE_TEXT}
+                    {clampedSizeText}
                   </ViewportTooltip>
                 </div>
               )}

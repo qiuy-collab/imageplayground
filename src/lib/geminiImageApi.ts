@@ -8,6 +8,7 @@ import {
   type CallApiOptions,
   type CallApiResult,
 } from './imageApiShared'
+import { sizeToGeminiImageConfig } from './size'
 
 function getImagePart(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/)
@@ -61,6 +62,9 @@ async function callGeminiOnce(opts: CallApiOptions, profile: ApiProfile): Promis
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  // 尺寸：把像素 size 反解为官方档位（imageSize 1K/2K/4K + aspectRatio），
+  // 'auto' 或无法解析时不携带 imageConfig，由模型自行决定尺寸。
+  const imageConfig = sizeToGeminiImageConfig(opts.params.size)
   try {
     const response = await fetch(buildGeminiUrl(profile), {
       method: 'POST',
@@ -79,6 +83,7 @@ async function callGeminiOnce(opts: CallApiOptions, profile: ApiProfile): Promis
         }],
         generationConfig: {
           responseModalities: ['IMAGE'],
+          ...(imageConfig ? { imageConfig } : {}),
         },
       }),
       signal: controller.signal,

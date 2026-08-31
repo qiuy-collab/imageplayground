@@ -45,6 +45,7 @@ import {
   applyPresetProviderSwitch,
 } from '../lib/presetConfig'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
+import { convertImageSizeForProvider } from '../lib/size'
 import { createCustomProfileImportUrl } from '../lib/profileImportUrl'
 import { requestBrowserNotificationPermission, type BrowserNotificationPermissionResult } from '../lib/browserNotification'
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, REASONING_EFFORT_VALUES, type AgentApiConfigMode, type ApiProfile, type AppSettings, type CustomProviderDefinition, type ReasoningEffort, type ZipDownloadRoute } from '../types'
@@ -162,6 +163,8 @@ export default function SettingsModal() {
   const setShowSettings = useStore((s) => s.setShowSettings)
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
+  const params = useStore((s) => s.params)
+  const setParams = useStore((s) => s.setParams)
   const dismissPresetProfile = useStore((s) => s.dismissPresetProfile)
   const dismissPresetProvider = useStore((s) => s.dismissPresetProvider)
   const restorePresetProvider = useStore((s) => s.restorePresetProvider)
@@ -964,6 +967,9 @@ export default function SettingsModal() {
       nextProvider,
     )
     updateActiveProfile(nextProfile, true)
+    // 尺寸随分组换算：同一「档位 + 比例」在 OpenAI / Gemini 下各自落为该分组官方表的像素值
+    const convertedSize = convertImageSizeForProvider(params.size, nextProvider)
+    if (convertedSize !== params.size) setParams({ size: convertedSize })
   }
 
   const closeCustomProviderModal = () => {

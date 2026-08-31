@@ -288,3 +288,155 @@ export function calculateImageSize(tier: SizeTier, ratio: string) {
   if (bestPixels === 0) return null
   return `${bestWidth}x${bestHeight}`
 }
+
+// ===== Gemini（Nano Banana / Gemini 3 系图像模型）尺寸适配 =====
+// 官方尺寸表来源：ai.google.dev/gemini-api/docs/image-generation
+// - Gemini 3.1 Flash Image（Nano Banana 2）支持 512px/1K/2K/4K 四档（512px 档 UI 不提供）
+// - Gemini 3 Pro Image（Nano Banana Pro）支持 1K/2K/4K
+// - 请求字段：generationConfig.imageConfig { aspectRatio, imageSize: '1K' | '2K' | '4K' }
+// 以下像素值与官方「3.1 Flash Image」表逐格一致。
+
+const GEMINI_COMMON_SIZE_PRESETS: Record<SizeTier, Record<PresetRatio, string>> = {
+  '1K': {
+    '1:1': '1024x1024',
+    '3:2': '1264x848',
+    '2:3': '848x1264',
+    '16:9': '1376x768',
+    '9:16': '768x1376',
+    '4:3': '1200x896',
+    '3:4': '896x1200',
+    '21:9': '1584x672',
+  },
+  '2K': {
+    '1:1': '2048x2048',
+    '3:2': '2528x1696',
+    '2:3': '1696x2528',
+    '16:9': '2752x1536',
+    '9:16': '1536x2752',
+    '4:3': '2400x1792',
+    '3:4': '1792x2400',
+    '21:9': '3168x1344',
+  },
+  '4K': {
+    '1:1': '4096x4096',
+    '3:2': '5056x3392',
+    '2:3': '3392x5056',
+    '16:9': '5504x3072',
+    '9:16': '3072x5504',
+    '4:3': '4800x3584',
+    '3:4': '3584x4800',
+    '21:9': '6336x2688',
+  },
+}
+
+// Gemini 就近映射的候选比例：UI 的 8 个比例之外，官方表还提供 4:5 / 5:4，
+// 仅作为自定义比例的映射目标，不进 UI 按钮列表。
+const GEMINI_RATIO_CANDIDATES: PresetRatio[] = [...Object.keys(GEMINI_COMMON_SIZE_PRESETS['1K']), '4:5', '5:4'] as PresetRatio[]
+const GEMINI_EXTRA_PRESETS: Partial<Record<SizeTier, Record<string, string>>> = {
+  '1K': { '4:5': '928x1152', '5:4': '1152x928' },
+  '2K': { '4:5': '1856x2304', '5:4': '2304x1856' },
+  '4K': { '4:5': '3712x4608', '5:4': '4608x3712' },
+}
+
+const SIZE_TIERS: SizeTier[] = ['1K', '2K', '4K']
+
+export type SizeVariant = 'openai' | 'gemini'
+
+function getPresetTable(variant: SizeVariant): Record<SizeTier, Record<PresetRatio, string>> {
+  return variant === 'gemini' ? GEMINI_COMMON_SIZE_PRESETS : COMMON_SIZE_PRESETS
+}
+
+function getGeminiPreset(tier: SizeTier, ratio: PresetRatio): string {
+  return GEMINI_EXTRA_PRESETS[tier]?.[ratio] ?? GEMINI_COMMON_SIZE_PRESETS[tier][ratio]
+}
+
+function inferSizeTierByPixels(pixels: number): SizeTier {
+  if (pixels <= TIER_PIXEL_BUDGET['1K']) return '1K'
+  if (pixels <= TIER_PIXEL_BUDGET['2K']) return '2K'
+  return '4K'
+}
+
+function nearestRatio(width: number, height: number, candidates: PresetRatio[]): PresetRatio {
+  const target = width / height
+  let best = candidates[0]
+  let bestDelta = Number.POSITIVE_INFINITY
+  for (const ratio of candidates) {
+    const parsed = parseRatio(ratio)
+    if (!parsed) continue
+    const delta = Math.abs(target - parsed.width / parsed.height) / (parsed.width / parsed.height)
+    if (delta < bestDelta) {
+      bestDelta = delta
+      best = ratio
+    }
+  }
+  return best
+}
+
+/**
+ * 把任意像素尺寸反解为「档位 + 比例」：
+ * 1) 先按目标形态的官方预置表精确匹配（保证往返无损）；
+ * 2) 匹配不到再按像素总数分档、比例就近映射。
+ */
+export function decomposeImageSize(size: string, variant: SizeVariant): { tier: SizeTier, ratio: PresetRatio } | null {
+  const match = size.trim().match(SIZE_PATTERN)
+  if (!match) return null
+
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+
+  const table = getPresetTable(variant)
+  const sizeKey = `${width}x${height}`
+  for (const tier of SIZE_TIERS) {
+    for (const [ratio, value] of Object.entries(table[tier])) {
+      if (value === sizeKey) return { tier, ratio: ratio as PresetRatio }
+    }
+  }
+
+  const tier = inferSizeTierByPixels(width * height)
+  const candidates = variant === 'gemini' ? GEMINI_RATIO_CANDIDATES : (Object.keys(COMMON_SIZE_PRESETS['1K']) as PresetRatio[])
+  return { tier, ratio: nearestRatio(width, height, candidates) }
+}
+
+/** Gemini 分组下的档位 + 比例 → 官方像素尺寸（自定义比例就近映射到官方支持的比例）。 */
+export function calculateGeminiImageSize(tier: SizeTier, ratio: string): string | null {
+  const preset = GEMINI_COMMON_SIZE_PRESETS[tier][ratio as PresetRatio]
+  if (preset) return preset
+
+  const parsed = parseRatio(ratio)
+  if (!parsed) return null
+  return getGeminiPreset(tier, nearestRatio(parsed.width, parsed.height, GEMINI_RATIO_CANDIDATES))
+}
+
+/**
+ * Gemini generateContent 的尺寸参数。
+ * 'auto' 或无法解析的尺寸返回 null（请求体不携带 imageConfig，由模型自行决定）。
+ */
+export function sizeToGeminiImageConfig(size: string): { aspectRatio: string, imageSize: SizeTier } | null {
+  const spec = decomposeImageSize(size, 'gemini')
+  if (!spec) return null
+  return { aspectRatio: spec.ratio, imageSize: spec.tier }
+}
+
+/**
+ * 分组切换时的尺寸换算：同一个「档位 + 比例」选择，
+ * 在 OpenAI 分组与 Gemini 分组下各自落为该分组官方表的像素值。
+ * 'auto' / 无法解析的值原样返回。目标不是 openai/gemini 时（自定义、fal）按 OpenAI 形态处理。
+ */
+export function convertImageSizeForProvider(size: string, targetProvider: string): string {
+  const trimmed = size.trim()
+  if (!trimmed || trimmed === 'auto') return trimmed
+
+  const variant: SizeVariant = targetProvider === 'gemini' ? 'gemini' : 'openai'
+  const spec = decomposeImageSize(trimmed, variant)
+  if (!spec) return trimmed
+
+  if (variant === 'gemini') return getGeminiPreset(spec.tier, spec.ratio)
+  return calculateImageSize(spec.tier, spec.ratio) ?? trimmed
+}
+
+/** 按形态反查像素值对应的预置档位（UI 回显用）。 */
+export function findSizePresetFor(size: string, variant: SizeVariant): { tier: SizeTier, ratio: string } | null {
+  const spec = decomposeImageSize(size, variant)
+  return spec ? { tier: spec.tier, ratio: spec.ratio } : null
+}

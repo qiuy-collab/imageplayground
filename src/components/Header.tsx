@@ -6,7 +6,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import { useFavoriteCollectionTitle } from './FavoriteCollections'
-import { HelpCircleIcon, SettingsIcon } from './icons'
+import { ExternalLinkIcon, HelpCircleIcon, SettingsIcon } from './icons'
 
 export default function Header() {
   const setShowSettings = useStore((s) => s.setShowSettings)
@@ -19,6 +19,7 @@ export default function Header() {
   const [scrollDirection, setScrollDirection] = useState<'up' | 'down'>('up')
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
+  const openWindowTooltip = useTooltip()
 
   useEffect(() => {
     let lastScrollY = window.scrollY
@@ -112,6 +113,21 @@ export default function Header() {
                 <SettingsIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
               <ViewportTooltip visible={settingsTooltip.visible} className="whitespace-nowrap">设置</ViewportTooltip>
+            </div>
+
+            <div className="relative" {...openWindowTooltip.handlers}>
+              <button
+                type="button"
+                onClick={() => {
+                  dismissAllTooltips()
+                  window.open(window.location.href, '_blank', 'noopener,noreferrer')
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+                aria-label="在新窗口打开"
+              >
+                <ExternalLinkIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </button>
+              <ViewportTooltip visible={openWindowTooltip.visible} className="whitespace-nowrap">在新窗口打开</ViewportTooltip>
             </div>
           </div>
 

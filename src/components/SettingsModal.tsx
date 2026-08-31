@@ -568,7 +568,7 @@ export default function SettingsModal() {
     const nextDraft = {
       ...draft,
       agentMaxToolRounds: normalizedAgentMaxToolRounds,
-      profiles: activeProviderIsOpenAICompatible && !activeProfileLocked
+      profiles: activeProviderIsOpenAICompatible && (!activeProfileLocked || isPresetProfileFieldUnlocked('timeout'))
         ? draft.profiles.map((profile) =>
             profile.id === activeProfile.id ? { ...profile, timeout: normalizedTimeout } : profile,
           )
@@ -580,7 +580,7 @@ export default function SettingsModal() {
   }
 
   const commitTimeout = useCallback(() => {
-    if (activeProfileLocked || !isOpenAICompatibleProvider(draft, activeProfile.provider)) return
+    if ((activeProfileLocked && !isPresetProfileFieldUnlocked('timeout')) || !isOpenAICompatibleProvider(draft, activeProfile.provider)) return
     const nextTimeout = Number(timeoutInput)
     const normalizedTimeout =
       timeoutInput.trim() === '' ? DEFAULT_SETTINGS.timeout : Number.isNaN(nextTimeout) ? activeProfile.timeout : nextTimeout
@@ -1432,7 +1432,7 @@ export default function SettingsModal() {
                   onChange={(e) => updateActiveProfile({ name: e.target.value })}
                   onBlur={(e) => commitActiveProfilePatch({ name: e.target.value })}
                   type="text"
-                  disabled={activeProfileLocked}
+                  disabled={activeProfileLocked && !isPresetProfileFieldUnlocked('name')}
                   className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                 />
               </label>
@@ -1538,6 +1538,11 @@ export default function SettingsModal() {
                 <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
                   支持通过查询参数覆盖：<code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">?apiKey=</code>
                 </div>
+                {singlePresetProfileMode && (
+                  <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
+                    OpenAI 与 Gemini 的 API Key 相互独立，切换服务商类型后需分别填写。
+                  </div>
+                )}
               </div>
 
               {/* 6. API 接口（Images/Responses） */}
@@ -1558,7 +1563,7 @@ export default function SettingsModal() {
                       { label: 'Images API (/v1/images)', value: 'images' },
                       { label: 'Responses API (/v1/responses)', value: 'responses' },
                     ]}
-                    disabled={activeProfileLocked}
+                    disabled={activeProfileLocked && !isPresetProfileFieldUnlocked('apiMode')}
                     className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                   />
                   <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
@@ -1609,7 +1614,7 @@ export default function SettingsModal() {
                           { label: '默认', value: '' },
                           ...REASONING_EFFORT_VALUES.map((value) => ({ label: value, value })),
                         ]}
-                        disabled={activeProfileLocked}
+                        disabled={activeProfileLocked && !isPresetProfileFieldUnlocked('reasoningEffort')}
                         className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-1.5 text-xs text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                       />
                     </div>
@@ -1629,7 +1634,7 @@ export default function SettingsModal() {
                       <button
                         type="button"
                         onClick={() => updateActiveProfile({ streamImages: !activeProfile.streamImages }, true)}
-                        disabled={activeProfileLocked}
+                        disabled={activeProfileLocked && !isPresetProfileFieldUnlocked('streamImages')}
                         className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.streamImages ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                         role="switch"
                         aria-checked={!!activeProfile.streamImages}
@@ -1649,7 +1654,7 @@ export default function SettingsModal() {
                         <Select
                           value={normalizeStreamPartialImages(activeProfile.streamPartialImages)}
                           onChange={(value) => updateActiveProfile({ streamPartialImages: normalizeStreamPartialImages(value) }, true)}
-                          disabled={!activeProfile.streamImages || activeProfileLocked}
+                          disabled={!activeProfile.streamImages || (activeProfileLocked && !isPresetProfileFieldUnlocked('streamPartialImages'))}
                           options={[
                             { label: '0，不请求', value: 0 },
                             { label: '1 张', value: 1 },
@@ -1679,7 +1684,7 @@ export default function SettingsModal() {
                         { label: 'API 原生', value: 'api' },
                         { label: '本地后处理', value: 'local' },
                       ]}
-                      disabled={activeProfileLocked || !activeCustomProviderSupportsNativeTransparentBackground}
+                      disabled={(activeProfileLocked && !isPresetProfileFieldUnlocked('transparentBackgroundMethod')) || !activeCustomProviderSupportsNativeTransparentBackground}
                       className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-1.5 text-xs text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                     />
                   </div>
@@ -1701,7 +1706,7 @@ export default function SettingsModal() {
                     <button
                       type="button"
                       onClick={() => updateActiveProfile({ responseFormatB64Json: !activeProfile.responseFormatB64Json }, true)}
-                      disabled={activeProfileLocked}
+                      disabled={activeProfileLocked && !isPresetProfileFieldUnlocked('responseFormatB64Json')}
                       className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.responseFormatB64Json ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                       role="switch"
                       aria-checked={!!activeProfile.responseFormatB64Json}
@@ -1724,7 +1729,7 @@ export default function SettingsModal() {
                     <button
                       type="button"
                       onClick={() => updateActiveProfile({ codexCli: !activeProfile.codexCli }, true)}
-                      disabled={activeProfileLocked}
+                      disabled={activeProfileLocked && !isPresetProfileFieldUnlocked('codexCli')}
                       className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.codexCli ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                       role="switch"
                       aria-checked={activeProfile.codexCli}
@@ -1748,7 +1753,7 @@ export default function SettingsModal() {
                     onChange={(e) => setTimeoutInput(e.target.value)}
                     onBlur={commitTimeout}
                     type="number"
-                    disabled={activeProfileLocked}
+                    disabled={activeProfileLocked && !isPresetProfileFieldUnlocked('timeout')}
                     min={10}
                     max={600}
                     className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"

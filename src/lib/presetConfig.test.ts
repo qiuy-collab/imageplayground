@@ -606,4 +606,47 @@ describe('preset provider switch mode (single profile + providerPresets)', () =>
     expect(policy.migratePresetModelValue('my-own-model')).toBe('my-own-model')
     expect(policy.migratePresetModelValue('')).toBe('')
   })
+
+  it('unlocks only the fields declared in VITE_PRESET_UNLOCKED_FIELDS', async () => {
+    vi.stubEnv('VITE_LOCK_PRESET_CONFIG_PARAMS', 'true')
+    vi.stubEnv('VITE_PRESET_UNLOCKED_FIELDS', 'model,name,apiMode,reasoningEffort,streamImages,streamPartialImages,transparentBackgroundMethod,responseFormatB64Json,codexCli,timeout')
+    const { createDefaultOpenAIProfile } = await import('./apiProfiles')
+    const policy = await import('./presetConfig')
+    policy.setPresetConfig({ customProviders: [], profiles: [createDefaultOpenAIProfile({ id: 'p', isDefault: true })] })
+
+    for (const field of ['model', 'name', 'apiMode', 'reasoningEffort', 'streamImages', 'streamPartialImages', 'transparentBackgroundMethod', 'responseFormatB64Json', 'codexCli', 'timeout']) {
+      expect(policy.isPresetProfileFieldUnlocked(field)).toBe(true)
+    }
+    // URL 与受控字段保持锁定
+    expect(policy.isPresetProfileFieldUnlocked('baseUrl')).toBe(false)
+    expect(policy.isPresetProfileFieldUnlocked('provider')).toBe(false)
+    expect(policy.isPresetProfileFieldUnlocked('apiKey')).toBe(false)
+  })
+
+  it('keeps API keys separate per provider type across switches', async () => {
+    const { policy, normalizeSettings, preset, switchApiProfileProvider } = await setup()
+    // openai 有 key → 切 gemini：key 清空（待填 gemini key），原 key 存档
+    const openaiProfile = { ...preset, apiKey: 'sk-openai' }
+    const toGemini = policy.applyPresetProviderSwitch(switchApiProfileProvider(openaiProfile, 'gemini'), 'gemini')
+    expect(toGemini.provider).toBe('gemini')
+    expect(toGemini.apiKey).toBe('')
+    expect(toGemini.baseUrl).toBe('https://gateway.example.com')
+    expect(toGemini.providerDrafts?.openai?.apiKey).toBe('sk-openai')
+
+    // gemini 填 key → 切回 openai：两个 key 互不串、各自保留
+    const backToOpenai = policy.applyPresetProviderSwitch(
+      switchApiProfileProvider({ ...toGemini, apiKey: 'sk-gemini' }, 'openai'),
+      'openai',
+    )
+    expect(backToOpenai.provider).toBe('openai')
+    expect(backToOpenai.apiKey).toBe('sk-openai')
+    expect(backToOpenai.baseUrl).toBe('https://gateway.example.com/v1')
+    expect(backToOpenai.providerDrafts?.gemini?.apiKey).toBe('sk-gemini')
+    expect(backToOpenai.providerDrafts?.openai?.apiKey).toBe('sk-openai')
+
+    // 走一遍序列化，providerDrafts 里的 key 持久化不丢
+    const persisted = normalizeSettings({ customProviders: [], profiles: [backToOpenai] })
+    expect(persisted.profiles[0].providerDrafts?.gemini?.apiKey).toBe('sk-gemini')
+    expect(persisted.profiles[0].providerDrafts?.openai?.apiKey).toBe('sk-openai')
+  })
 })

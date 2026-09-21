@@ -486,3 +486,14 @@ input[type="number"] {
   isolation: isolate;
   -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
+
+/* 主应用 iframe 嵌入模式：左侧 key 栏（w-60）存在时，底部输入栏中心右移半个侧栏宽度 */
+body.embedded-with-sidebar .input-bar-dock {
+  left: calc(50% + 7.5rem);
+}
+
+@media (max-width: 767px) {
+  body.embedded-with-sidebar .input-bar-dock {
+    left: 50%;
+  }
+}

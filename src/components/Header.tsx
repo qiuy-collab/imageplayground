@@ -6,10 +6,9 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import { useFavoriteCollectionTitle } from './FavoriteCollections'
-import { ExternalLinkIcon, HelpCircleIcon, SettingsIcon } from './icons'
+import { ExternalLinkIcon, HelpCircleIcon } from './icons'
 
 export default function Header() {
-  const setShowSettings = useStore((s) => s.setShowSettings)
   const filterFavorite = useStore((s) => s.filterFavorite)
   const activeFavoriteCollectionId = useStore((s) => s.activeFavoriteCollectionId)
   const favoriteCollectionTitle = useFavoriteCollectionTitle()
@@ -18,7 +17,6 @@ export default function Header() {
   const [showHelp, setShowHelp] = useState(false)
   const [scrollDirection, setScrollDirection] = useState<'up' | 'down'>('up')
   const helpTooltip = useTooltip()
-  const settingsTooltip = useTooltip()
   const openWindowTooltip = useTooltip()
 
   useEffect(() => {
@@ -101,18 +99,6 @@ export default function Header() {
                 <HelpCircleIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
               <ViewportTooltip visible={helpTooltip.visible} className="whitespace-nowrap">操作指南</ViewportTooltip>
-            </div>
-
-            <div className="relative" {...settingsTooltip.handlers}>
-              <button
-                type="button"
-                onClick={() => setShowSettings(true, 'api')}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
-                aria-label="设置"
-              >
-                <SettingsIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-              </button>
-              <ViewportTooltip visible={settingsTooltip.visible} className="whitespace-nowrap">设置</ViewportTooltip>
             </div>
 
             <div className="relative" {...openWindowTooltip.handlers}>

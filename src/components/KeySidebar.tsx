@@ -10,7 +10,7 @@ import {
   readEmbeddedAuth,
   type UserApiKey,
 } from '../lib/userKeys'
-import { CloseIcon, RefreshIcon, SidebarLeftIcon } from './icons'
+import { ChevronDownIcon, CloseIcon, RefreshIcon } from './icons'
 
 type LoadState = 'loading' | 'ready' | 'error'
 
@@ -207,7 +207,7 @@ export default function KeySidebar() {
               type="button"
               onClick={() => selectModel(model)}
               title={selected ? `当前模型：${model}` : `切换到 ${model}`}
-              className={`max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+              className={`max-w-full truncate rounded-md border px-2 py-1 font-mono text-[11px] transition-colors ${
                 selected
                   ? 'border-blue-500/70 bg-blue-500/10 text-blue-600 dark:text-blue-400'
                   : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:border-white/[0.08] dark:text-gray-400 dark:hover:text-gray-200'
@@ -231,18 +231,18 @@ export default function KeySidebar() {
           disabled={!usable}
           onClick={() => selectKey(item)}
           title={usable ? `使用「${item.name}」（${groupLabel}）` : `该 key 当前不可用（${item.status}）`}
-          className={`w-full rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
+          className={`w-full rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
             selected
               ? 'border-blue-500/70 bg-blue-50 dark:bg-blue-500/10'
               : 'border-gray-200 hover:bg-gray-100 dark:border-white/[0.08] dark:hover:bg-white/[0.06]'
           }`}
         >
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-2">
             <span className={`min-w-0 flex-1 truncate text-[13px] font-medium ${selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-800 dark:text-gray-100'}`}>
               {item.name}
             </span>
             <span
-              className={`shrink-0 max-w-[88px] truncate rounded px-1 py-0.5 text-[10px] leading-none ${
+              className={`shrink-0 max-w-[96px] truncate rounded px-1.5 py-0.5 text-[10px] leading-none ${
                 selected
                   ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                   : 'bg-gray-100 text-gray-500 dark:bg-white/[0.06] dark:text-gray-400'
@@ -251,10 +251,16 @@ export default function KeySidebar() {
             >
               {groupLabel}
             </span>
-            {selected && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" aria-hidden />}
           </span>
-          <span className="mt-0.5 block truncate font-mono text-[11px] text-gray-400 dark:text-gray-500">
-            {maskKey(item.key)}
+          <span className="mt-1 flex items-center gap-1.5">
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-gray-400 dark:text-gray-500">
+              {maskKey(item.key)}
+            </span>
+            {selected && (
+              <span className="shrink-0 text-[10px] font-semibold text-blue-500" aria-hidden>
+                ✓
+              </span>
+            )}
           </span>
         </button>
         {selected && usable && renderModelOptions()}
@@ -282,17 +288,19 @@ export default function KeySidebar() {
 
   return (
     <>
-      {/* 移动端悬浮入口：显示当前 key 名，点击唤起抽屉 */}
+      {/* 移动端悬浮入口：主色药丸按钮，标明 Key + 当前 key 名，点击唤起抽屉 */}
       <button
         type="button"
         onClick={() => setMobileOpen(true)}
-        className="fixed right-3 top-16 z-20 flex max-w-[45vw] items-center gap-1.5 rounded-full border border-gray-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur transition-colors hover:bg-gray-50 md:hidden dark:border-white/[0.1] dark:bg-gray-900/95 dark:hover:bg-gray-800"
+        className="fixed right-3 top-16 z-20 flex max-w-[70vw] items-center gap-2 rounded-full bg-blue-500 py-2.5 pl-4 pr-3 text-white shadow-lg shadow-blue-500/40 transition hover:bg-blue-600 active:scale-95 md:hidden"
         aria-label="选择 key"
       >
-        <SidebarLeftIcon className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
-        <span className="truncate text-[12px] font-medium text-gray-700 dark:text-gray-200">
-          {activeKeyRecord ? activeKeyRecord.name : '选择 Key'}
+        <span className="shrink-0 text-[13px] font-semibold tracking-wide">Key</span>
+        <span className="h-3.5 w-px shrink-0 bg-white/40" aria-hidden />
+        <span className="max-w-[42vw] truncate text-[12px] font-medium text-white/95">
+          {activeKeyRecord ? activeKeyRecord.name : '点击选择'}
         </span>
+        <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-white/80" />
       </button>
 
       {/* 移动端遮罩 */}

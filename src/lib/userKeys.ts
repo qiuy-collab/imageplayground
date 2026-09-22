@@ -15,6 +15,8 @@ export interface UserApiKey {
   groupId: number | null
   groupName: string
   groupPlatform: string
+  /** 分组是否已开启图片生成（后台 allow_image_generation 开关）。 */
+  groupAllowsImage: boolean
 }
 
 export interface EmbeddedAuth {
@@ -30,6 +32,16 @@ const IMAGE_CAPABLE_PLATFORMS = new Set(['openai', 'gemini'])
 /** 该 key 所属分组平台是否可在生图工作台使用。 */
 export function isImageCapablePlatform(platform: string): boolean {
   return IMAGE_CAPABLE_PLATFORMS.has(platform.trim())
+}
+
+/**
+ * 该 key 是否可在生图工作台使用：分组平台具备生图请求形态（openai/gemini）
+ * 且分组已在后台开启「图片生成」开关（allow_image_generation）。
+ * 仅按平台判定会把对话分组（平台同为 openai，如 PLUS/特惠）的 key 放进来——
+ * 它们没有生图渠道，选中后生成必然失败。
+ */
+export function isImageCapableKey(item: Pick<UserApiKey, 'groupPlatform' | 'groupAllowsImage'>): boolean {
+  return isImageCapablePlatform(item.groupPlatform) && item.groupAllowsImage
 }
 
 export function readEmbeddedAuth(): EmbeddedAuth | null {
@@ -69,6 +81,7 @@ function normalizeKeyRecord(item: RawKeyRecord): UserApiKey | null {
   const group = (item.group && typeof item.group === 'object' ? item.group : {}) as {
     name?: unknown
     platform?: unknown
+    allow_image_generation?: unknown
   }
   return {
     id: Number.isFinite(id) ? id : 0,
@@ -78,6 +91,9 @@ function normalizeKeyRecord(item: RawKeyRecord): UserApiKey | null {
     groupId: Number.isFinite(groupId) ? groupId : null,
     groupName: typeof group.name === 'string' ? group.name.trim() : '',
     groupPlatform: typeof group.platform === 'string' ? group.platform.trim() : '',
+    // 字段缺失（非 0.2.7+ 后端）时视为开启，回退为仅按平台判定，避免误杀
+    groupAllowsImage:
+      typeof group.allow_image_generation === 'boolean' ? group.allow_image_generation : true,
   }
 }
 

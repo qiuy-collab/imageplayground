@@ -4,13 +4,13 @@ import { getActiveApiProfile } from '../lib/apiProfiles'
 import {
   fetchGatewayModels,
   fetchUserApiKeys,
-  isImageCapablePlatform,
+  isImageCapableKey,
   isKeyUsable,
   maskKey,
   readEmbeddedAuth,
   type UserApiKey,
 } from '../lib/userKeys'
-import { RefreshIcon } from './icons'
+import { CloseIcon, RefreshIcon, SidebarLeftIcon } from './icons'
 
 type LoadState = 'loading' | 'ready' | 'error'
 
@@ -36,9 +36,12 @@ function providerParams(provider: 'openai' | 'gemini') {
  * 左侧「选择 key」常驻栏（仅主应用 iframe 嵌入模式渲染）。
  * 与宿主用户已创建的 key 实时同步：挂载时拉取、30s 轮询、回到前台时刷新。
  * 展示逻辑：
- * - 仅展示「可生图」的 key：分组平台为 openai / gemini（这两类平台具备生图请求形态）。
+ * - 仅展示「可生图」的 key：分组平台为 openai / gemini，且分组已在后台开启
+ *   「图片生成」开关（allow_image_generation）——仅按平台判定会把对话分组
+ *   （平台同为 openai）的 key 混进来。
  * - 分区展示：OpenAI 区（Images API）与 Gemini 区（generateContent）。
  * - key 条目旁展示所属分组名。
+ * 移动端（<768px）：侧栏收起，右上角悬浮按钮唤起抽屉式浮层（遮罩 + Esc 关闭）。
  * 选中 key 按其分组平台自动路由服务商类型（openai/gemini），baseUrl 统一置空走同源相对路径
  * （openai → /v1/images/generations，gemini → /v1beta/models/{model}:generateContent），
  * 避免内置配置携带的绝对地址在本地/同源部署下跨域失败。
@@ -59,8 +62,19 @@ export default function KeySidebar() {
   const [errorMsg, setErrorMsg] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [models, setModels] = useState<string[]>([])
+  const [mobileOpen, setMobileOpen] = useState(false)
   const authRef = useRef(readEmbeddedAuth())
   const modelsCacheRef = useRef(new Map<string, string[]>())
+
+  // 移动端抽屉打开时支持 Esc 关闭
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileOpen])
 
   const load = useCallback(async (showSpinner: boolean) => {
     const auth = authRef.current ?? readEmbeddedAuth()
@@ -153,6 +167,7 @@ export default function KeySidebar() {
           : profile,
       ),
     })
+    setMobileOpen(false)
   }
 
   const selectModel = (model: string) => {
@@ -171,9 +186,9 @@ export default function KeySidebar() {
     })
   }
 
-  // 仅展示可生图的 key，并按厂商分区
+  // 仅展示可生图的 key（平台具备生图请求形态 + 分组已开启图片生成），并按厂商分区
   const partitions = useMemo(() => {
-    const source = keys.filter((item) => isImageCapablePlatform(item.groupPlatform))
+    const source = keys.filter(isImageCapableKey)
     const usableFirst = (a: UserApiKey, b: UserApiKey) => Number(isKeyUsable(b.status)) - Number(isKeyUsable(a.status))
     const openai = source.filter((item) => item.groupPlatform.trim() === 'openai').sort(usableFirst)
     const gemini = source.filter((item) => item.groupPlatform.trim() === 'gemini').sort(usableFirst)
@@ -260,28 +275,67 @@ export default function KeySidebar() {
   }
 
   const totalVisible = partitions.openai.length + partitions.gemini.length
+  const activeKeyRecord = useMemo(
+    () => keys.find((item) => item.key === activeApiKey) ?? null,
+    [keys, activeApiKey],
+  )
 
   return (
-    <aside
-      data-no-drag-select
-      className="fixed left-0 top-14 bottom-0 z-30 hidden w-60 flex-col overflow-y-auto border-r border-gray-200 bg-white px-3 py-4 md:flex dark:border-white/[0.08] dark:bg-gray-950"
-      aria-label="选择 key"
-    >
-      <div className="mb-3 flex items-center justify-between px-1">
-        <div className="min-w-0">
-          <h2 className="text-[13px] font-bold tracking-tight text-gray-800 dark:text-gray-100">选择 Key</h2>
-          <p className="mt-0.5 truncate text-[11px] text-gray-400 dark:text-gray-500">来自你创建的 API Keys</p>
+    <>
+      {/* 移动端悬浮入口：显示当前 key 名，点击唤起抽屉 */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        className="fixed right-3 top-16 z-20 flex max-w-[45vw] items-center gap-1.5 rounded-full border border-gray-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur transition-colors hover:bg-gray-50 md:hidden dark:border-white/[0.1] dark:bg-gray-900/95 dark:hover:bg-gray-800"
+        aria-label="选择 key"
+      >
+        <SidebarLeftIcon className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
+        <span className="truncate text-[12px] font-medium text-gray-700 dark:text-gray-200">
+          {activeKeyRecord ? activeKeyRecord.name : '选择 Key'}
+        </span>
+      </button>
+
+      {/* 移动端遮罩 */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      <aside
+        data-no-drag-select
+        className={`fixed left-0 top-14 bottom-0 flex-col overflow-y-auto border-r border-gray-200 bg-white px-3 py-4 md:flex md:z-30 md:w-60 dark:border-white/[0.08] dark:bg-gray-950 ${
+          mobileOpen ? 'flex z-40 w-72 max-w-[85vw] shadow-2xl' : 'hidden'
+        }`}
+        aria-label="选择 key"
+      >
+        <div className="mb-3 flex items-center justify-between px-1">
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-bold tracking-tight text-gray-800 dark:text-gray-100">选择 Key</h2>
+            <p className="mt-0.5 truncate text-[11px] text-gray-400 dark:text-gray-500">来自你创建的 API Keys</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => void load(true)}
+              disabled={refreshing}
+              className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50 dark:hover:bg-white/[0.06] dark:hover:text-gray-300"
+              aria-label="刷新 key 列表"
+            >
+              <RefreshIcon className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileOpen(false)}
+              className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 md:hidden dark:hover:bg-white/[0.06] dark:hover:text-gray-300"
+              aria-label="关闭 key 列表"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void load(true)}
-          disabled={refreshing}
-          className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50 dark:hover:bg-white/[0.06] dark:hover:text-gray-300"
-          aria-label="刷新 key 列表"
-        >
-          <RefreshIcon className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-        </button>
-      </div>
 
       {state === 'loading' && (
         <p className="px-1 text-[12px] text-gray-400 dark:text-gray-500">正在获取 key 列表…</p>
@@ -302,7 +356,7 @@ export default function KeySidebar() {
 
       {state === 'ready' && totalVisible === 0 && (
         <p className="px-1 text-[12px] leading-relaxed text-gray-400 dark:text-gray-500">
-          没有可生图的 Key：请将 key 绑定到 OpenAI 或 Gemini 分组后刷新
+          没有可生图的 Key：请将 key 绑定到已开启图片生成的 OpenAI 或 Gemini 分组后刷新
         </p>
       )}
 
@@ -312,6 +366,7 @@ export default function KeySidebar() {
           {renderPartition('Gemini', partitions.gemini)}
         </>
       )}
-    </aside>
+      </aside>
+    </>
   )
 }
